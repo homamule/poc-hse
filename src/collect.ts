@@ -61,12 +61,13 @@ main().catch((error: unknown) => {
     console.error("");
     console.error(`ÉCHEC [${error.code}] : ${error.message}`);
     console.error("La collecte n'a pas été enregistrée comme réussie.");
-    process.exit(error.exitCode);
+    process.exitCode = error.exitCode;
+    return;
   }
 
   const message = error instanceof Error ? error.message : String(error);
   console.error("");
   console.error(`ÉCHEC [UNEXPECTED] : ${message}`);
   console.error("La collecte n'a pas été enregistrée comme réussie.");
-  process.exit(1);
+  process.exitCode = 1;
 });
