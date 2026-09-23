@@ -37,8 +37,10 @@ npm test
 # Collecte unitaire (nécessite LEGIFRANCE_ARTICLE_ID)
 npm run collect
 
-# Lot pilote (IDs dans le fichier d'entrée ; pas de LEGIFRANCE_ARTICLE_ID)
+# Lot pilote — 3 versions historiques de L4121-1 (pas de LEGIFRANCE_ARTICLE_ID)
 npm run collect:batch -- --input "config/articles-pilot.json"
+# Lot corpus prévention — 4 articles distincts (voir docs/corpus-prevention.md)
+npm run collect:batch -- --input "config/articles-prevention.json"
 # option : --delay-ms 1000 (défaut ; entier ≥ 0 ; réglage pilote, pas une affirmation de quota PISTE)
 
 # Normalisation locale (aucun réseau, ne charge pas .env)
@@ -61,6 +63,21 @@ Le fichier `config/articles-pilot.json` liste **trois versions historiques** du 
 | 3 | `LEGIARTI000006903147` | Version 1.0 |
 
 Ce lot teste le traitement de **versions** d’un même article, **pas** trois obligations distinctes ni un corpus représentatif du HSE.
+
+### Corpus prévention (`config/articles-prevention.json`)
+
+Quatre **articles distincts** du Code du travail (L4121-1, L4121-2, L4121-3, R4121-1). Détail et sources officielles : [`docs/corpus-prevention.md`](docs/corpus-prevention.md).
+
+```powershell
+npm run collect:batch -- --input "config/articles-prevention.json"
+```
+
+Contrôle manuel après exécution :
+
+1. Quatre articles collectés **et** normalisés (bilan de lot + fichiers sous `data/`)
+2. Correspondance `article.id` / numéro (`num`) avec le tableau de `docs/corpus-prevention.md`
+3. Rattachement au Code du travail (`LEGITEXT000006072050`) dans le contexte source
+4. Examen des warnings de normalisation et des relations présentes dans les corps collectés
 
 ### Déroulement
 
