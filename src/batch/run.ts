@@ -29,6 +29,12 @@ import {
 
 export const DEFAULT_BATCH_DELAY_MS = 1000;
 
+export type BatchArticleProgressEvent = {
+  index: number;
+  total: number;
+  result: BatchArticleResult;
+};
+
 export type BatchRunOptions = {
   inputPath: string;
   delayMs?: number;
@@ -45,6 +51,11 @@ export type BatchRunOptions = {
     collectionMetaPath: string;
     projectRoot?: string;
   }) => Promise<NormalizeCollectionResult>;
+  /**
+   * Progression : appelé dès qu'un résultat d'article est définitif
+   * (succès, échec, ou non traité).
+   */
+  onArticleResult?: (event: BatchArticleProgressEvent) => void;
 };
 export type BatchRunOutcome = {
   report: BatchReport;
@@ -174,6 +185,22 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchRunOutcom
   const now = options.now ?? (() => new Date());
   const createBatchId = options.createBatchId ?? (() => randomUUID());
   const normalizeFn = options.normalize ?? normalizeCollection;
+  const onArticleResult = options.onArticleResult;
+
+  const emitArticleResult = (indexZeroBased: number): void => {
+    if (onArticleResult === undefined) {
+      return;
+    }
+    const result = results[indexZeroBased];
+    if (result === undefined) {
+      return;
+    }
+    onArticleResult({
+      index: indexZeroBased + 1,
+      total: results.length,
+      result: { ...result },
+    });
+  };
 
   const inputAbsolute = path.isAbsolute(options.inputPath)
     ? options.inputPath
@@ -216,9 +243,10 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchRunOutcom
       message: controlled.message,
     };
     abortReasonForRest = "Échec OAuth initial : aucun article n'a été tenté.";
-    for (const result of results) {
-      result.status = "not_processed";
-      result.reason = abortReasonForRest;
+    for (let i = 0; i < results.length; i += 1) {
+      results[i]!.status = "not_processed";
+      results[i]!.reason = abortReasonForRest;
+      emitArticleResult(i);
     }
   }
 
@@ -230,6 +258,7 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchRunOutcom
       if (aborted) {
         result.status = "not_processed";
         result.reason = abortReasonForRest;
+        emitArticleResult(i);
         continue;
       }
 
@@ -245,6 +274,7 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchRunOutcom
           result.status = "failed";
           result.step = "fetch";
           result.errorCode = controlled.code;
+          emitArticleResult(i);
           if (i < batchInput.articleIds.length - 1) {
             await sleep(delayMs);
           }
@@ -263,9 +293,11 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchRunOutcom
         result.errorCode = controlled.code;
         abortReasonForRest =
           "Lot arrêté après une erreur fetch bloquante (AUTH, QUOTA, NETWORK ou HTTP).";
+        emitArticleResult(i);
         for (let j = i + 1; j < results.length; j += 1) {
           results[j]!.status = "not_processed";
           results[j]!.reason = abortReasonForRest;
+          emitArticleResult(j);
         }
         break;
       }
@@ -294,9 +326,11 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchRunOutcom
         result.errorCode = controlled.code;
         abortReasonForRest =
           "Lot arrêté après une erreur de stockage.";
+        emitArticleResult(i);
         for (let j = i + 1; j < results.length; j += 1) {
           results[j]!.status = "not_processed";
           results[j]!.reason = abortReasonForRest;
+          emitArticleResult(j);
         }
         break;
       }
@@ -314,6 +348,7 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchRunOutcom
         result.normalizedPath = normalized.outputPathRelative;
         result.normalizationWarningCount = normalized.document.warnings.length;
         result.status = "success";
+        emitArticleResult(i);
       } catch (error) {
         aborted = true;
         const controlled = controlledMessage(error);
@@ -327,9 +362,11 @@ export async function runBatch(options: BatchRunOptions): Promise<BatchRunOutcom
         result.errorCode = controlled.code;
         abortReasonForRest =
           "Lot arrêté après un échec de normalisation (collecte conservée).";
+        emitArticleResult(i);
         for (let j = i + 1; j < results.length; j += 1) {
           results[j]!.status = "not_processed";
           results[j]!.reason = abortReasonForRest;
+          emitArticleResult(j);
         }
         break;
       }

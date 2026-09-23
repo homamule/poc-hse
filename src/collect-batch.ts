@@ -71,21 +71,16 @@ async function main(): Promise<void> {
   console.log("Collecte par lot Légifrance — démarrage");
   console.log(`  Entrée   : ${inputPath}`);
   console.log(`  Délai    : ${delayMs} ms (réglage pilote, hors quota PISTE)`);
-
-  const outcome = await runBatch({ inputPath, delayMs });
-  const { report } = outcome;
-  const total = report.results.length;
-
   console.log("");
-  for (let i = 0; i < report.results.length; i += 1) {
-    console.log(
-      formatBatchProgressLine({
-        index: i + 1,
-        total,
-        result: report.results[i]!,
-      }),
-    );
-  }
+
+  const outcome = await runBatch({
+    inputPath,
+    delayMs,
+    onArticleResult: (event) => {
+      console.log(formatBatchProgressLine(event));
+    },
+  });
+  const { report } = outcome;
 
   console.log("");
   console.log(`Statut global : ${report.status}`);

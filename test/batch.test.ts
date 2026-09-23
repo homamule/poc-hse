@@ -484,19 +484,110 @@ describe("runBatch", () => {
       mock.restore();
     }
   });
+  it("émet la progression d'un article avant le traitement du suivant", async () => {
+    const projectRoot = await freshRoot();
+    const inputPath = await writeInput(projectRoot, [ID_A, ID_B]);
+    const progressIds: string[] = [];
+    let secondFetchStarted = false;
+
+    const mock = installFetch({
+      onArticle: (id) => {
+        if (id === ID_B) {
+          secondFetchStarted = true;
+          assert.deepEqual(
+            progressIds,
+            [ID_A],
+            "le résultat du 1er article doit être émis avant le fetch du 2e",
+          );
+        }
+        return new Response(articleBody(id), { status: 200 });
+      },
+    });
+
+    try {
+      const outcome = await runBatch({
+        inputPath,
+        projectRoot,
+        oauthConfig: oauthConfig(),
+        delayMs: 0,
+        sleep: async () => undefined,
+        createBatchId: () => "batch-progress-00000000001",
+        onArticleResult: (event) => {
+          if (event.result.articleId === ID_A) {
+            assert.equal(
+              secondFetchStarted,
+              false,
+              "le 2e fetch ne doit pas avoir commencé avant l'émission du 1er résultat",
+            );
+          }
+          progressIds.push(event.result.articleId);
+        },
+      });
+
+      assert.equal(outcome.exitCode, 0);
+      assert.deepEqual(progressIds, [ID_A, ID_B]);
+      assert.equal(secondFetchStarted, true);
+    } finally {
+      mock.restore();
+    }
+  });
 });
 
 describe("régression collect/normalize config", () => {
   it("sépare OAuth commun et identifiant d'article unitaire", async () => {
-    const { configForArticle, loadOAuthConfig } = await import("../src/config.js");
-    const oauth = loadOAuthConfig();
-    assert.equal("articleId" in oauth, false);
-    assert.ok(oauth.oauthTokenUrl.length > 0);
-    assert.ok(oauth.getArticleUrl.length > 0);
+    const envKeys = [
+      "PISTE_CLIENT_ID",
+      "PISTE_CLIENT_SECRET",
+      "PISTE_ENV",
+      "LEGIFRANCE_ARTICLE_ID",
+      "REQUEST_TIMEOUT_MS",
+    ] as const;
+    const previous: Record<(typeof envKeys)[number], string | undefined> = {
+      PISTE_CLIENT_ID: process.env.PISTE_CLIENT_ID,
+      PISTE_CLIENT_SECRET: process.env.PISTE_CLIENT_SECRET,
+      PISTE_ENV: process.env.PISTE_ENV,
+      LEGIFRANCE_ARTICLE_ID: process.env.LEGIFRANCE_ARTICLE_ID,
+      REQUEST_TIMEOUT_MS: process.env.REQUEST_TIMEOUT_MS,
+    };
 
-    const full = configForArticle(oauth, ID_A);
-    assert.equal(full.articleId, ID_A);
-    assert.equal(full.clientId, oauth.clientId);
-    assert.equal(full.getArticleUrl, oauth.getArticleUrl);
+    try {
+      // Valeurs fictives posées avant loadDotenv : dotenv ne les écrase pas.
+      process.env.PISTE_CLIENT_ID = "fake-oauth-client-id";
+      process.env.PISTE_CLIENT_SECRET = "fake-oauth-client-secret";
+      process.env.PISTE_ENV = "sandbox";
+      process.env.LEGIFRANCE_ARTICLE_ID = "";
+      delete process.env.REQUEST_TIMEOUT_MS;
+
+      const { configForArticle, loadConfig, loadOAuthConfig } = await import(
+        "../src/config.js"
+      );
+
+      const oauth = loadOAuthConfig();
+      assert.equal(oauth.clientId, "fake-oauth-client-id");
+      assert.equal(oauth.clientSecret, "fake-oauth-client-secret");
+      assert.equal(oauth.env, "sandbox");
+      assert.equal("articleId" in oauth, false);
+
+      assert.throws(
+        () => loadConfig(),
+        (error: unknown) =>
+          isCollectError(error) &&
+          error.code === "CONFIG" &&
+          /LEGIFRANCE_ARTICLE_ID/.test(error.message),
+      );
+
+      const full = configForArticle(oauth, ID_A);
+      assert.equal(full.articleId, ID_A);
+      assert.equal(full.clientId, "fake-oauth-client-id");
+    } finally {
+      for (const key of envKeys) {
+        const value = previous[key];
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
   });
 });
