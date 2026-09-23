@@ -1,4 +1,4 @@
-import type { AppConfig } from "./config.js";
+import type { OAuthConfig } from "./config.js";
 import { CollectError } from "./errors.js";
 import { mapNetworkError, readResponseText } from "./http.js";
 import { OAUTH_GRANT_TYPE, OAUTH_SCOPE } from "./piste.js";
@@ -65,7 +65,7 @@ function oauthAuthError(httpStatus: number, rawText: string): CollectError {
  * Le jeton n'est jamais journalisé. Aucun message n'expose le secret, le jeton,
  * le corps complet ni error_description.
  */
-export async function fetchAccessToken(config: AppConfig): Promise<string> {
+export async function fetchAccessToken(config: OAuthConfig): Promise<string> {
   const body = new URLSearchParams({
     grant_type: OAUTH_GRANT_TYPE,
     client_id: config.clientId,

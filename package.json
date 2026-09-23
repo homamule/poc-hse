@@ -9,6 +9,7 @@
   },
   "scripts": {
     "collect": "tsx src/collect.ts",
+    "collect:batch": "tsx src/collect-batch.ts",
     "normalize": "tsx src/normalize.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/**/*.test.ts"

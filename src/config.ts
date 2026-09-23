@@ -7,14 +7,18 @@ import {
 } from "./piste.js";
 import { CollectError } from "./errors.js";
 
-export type AppConfig = {
+/** Configuration OAuth / PISTE commune (sans identifiant d'article). */
+export type OAuthConfig = {
   clientId: string;
   clientSecret: string;
   env: PisteEnv;
-  articleId: string;
   timeoutMs: number;
   oauthTokenUrl: string;
   getArticleUrl: string;
+};
+
+export type AppConfig = OAuthConfig & {
+  articleId: string;
 };
 
 function requireEnv(name: string): string {
@@ -53,20 +57,38 @@ function parseTimeoutMs(raw: string | undefined): number {
   return value;
 }
 
-export function loadConfig(): AppConfig {
+/**
+ * Charge la configuration OAuth PISTE depuis `.env`.
+ * N'exige pas LEGIFRANCE_ARTICLE_ID (réservé à `npm run collect`).
+ */
+export function loadOAuthConfig(): OAuthConfig {
   loadDotenv();
 
   const env = parseEnv(requireEnv("PISTE_ENV"));
   const urls = PISTE_URLS[env];
-  const articleId = requireEnv("LEGIFRANCE_ARTICLE_ID");
 
   return {
     clientId: requireEnv("PISTE_CLIENT_ID"),
     clientSecret: requireEnv("PISTE_CLIENT_SECRET"),
     env,
-    articleId,
     timeoutMs: parseTimeoutMs(process.env.REQUEST_TIMEOUT_MS),
     oauthTokenUrl: urls.oauthToken,
     getArticleUrl: `${urls.apiBase}${GET_ARTICLE_PATH}`,
   };
+}
+
+/** Configuration complète pour la collecte unitaire (`npm run collect`). */
+export function loadConfig(): AppConfig {
+  const oauth = loadOAuthConfig();
+  return {
+    ...oauth,
+    articleId: requireEnv("LEGIFRANCE_ARTICLE_ID"),
+  };
+}
+
+export function configForArticle(
+  oauth: OAuthConfig,
+  articleId: string,
+): AppConfig {
+  return { ...oauth, articleId };
 }
