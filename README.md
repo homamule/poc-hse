@@ -92,9 +92,11 @@ data/normalized/<collectionId>_v1.0.0.json
 ```
 
 - Contenu déterministe (pas d’horodatage courant ni d’UUID aléatoire dans le document)
-- Création exclusive (flag `wx`, compatible Windows)
-- Fichier déjà présent + contenu identique → succès « déjà normalisé »
-- Fichier déjà présent + contenu différent → erreur, pas d’écrasement
+- Publication atomique : écriture complète d’un fichier temporaire **dans le même dossier**, fermeture du descripteur, puis création d’un **lien physique** (`fs.link`) vers le nom final — sans recopier les octets, sans lien symbolique, sans `rename` écrasant
+- Exigence FS : support des hard links sur un **même volume** (sous Windows : **NTFS** ; pas de repli silencieux vers `copyFile` si le lien est refusé)
+- Destination déjà présente + contenu identique → succès « déjà normalisé »
+- Destination déjà présente + contenu différent → erreur, pas d’écrasement
+- Le temporaire est toujours retiré après publication ou échec ; une destination existante n’est jamais supprimée
 
 Deux collectes du même corps restent distinguées par leur `provenance.collectionId`.
 

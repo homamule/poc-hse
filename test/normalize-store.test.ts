@@ -1,6 +1,6 @@
 import {
   access,
-  copyFile,
+  link,
   mkdir,
   mkdtemp,
   open,
@@ -14,9 +14,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import {
-  serializeNormalizedDocument,
-} from "../src/normalize/build.js";
+import { serializeNormalizedDocument } from "../src/normalize/build.js";
 import { isNormalizeError } from "../src/normalize/errors.js";
 import {
   writeNormalizedDocument,
@@ -24,9 +22,7 @@ import {
 } from "../src/normalize/store.js";
 import type { NormalizedArticleDocument } from "../src/normalize/types.js";
 
-function sampleDocument(
-  collectionId: string,
-): NormalizedArticleDocument {
+function sampleDocument(collectionId: string): NormalizedArticleDocument {
   return {
     schemaVersion: 1,
     normalizerVersion: "1.0.0",
@@ -99,11 +95,11 @@ const baseFs: NormalizedStoreFs = {
   access,
   readFile,
   open,
-  copyFile,
+  link,
   unlink,
 };
 
-describe("writeNormalizedDocument — publication atomique", () => {
+describe("writeNormalizedDocument — publication par lien physique", () => {
   const cleanups: Array<() => Promise<void>> = [];
   after(async () => {
     for (const cleanup of cleanups) {
@@ -119,13 +115,12 @@ describe("writeNormalizedDocument — publication atomique", () => {
     return projectRoot;
   }
 
-  it("échec d'écriture simulé : aucun fichier final partiel ni temporaire orphelin", async () => {
+  it("échec avant publication : aucune destination ni temporaire orphelin", async () => {
     const projectRoot = await freshRoot();
     const collectionId = "failwrite-0000-0000-0000-000000000001";
     const document = sampleDocument(collectionId);
     const normalizedDir = path.join(projectRoot, "data", "normalized");
-    const finalName = `${collectionId}_v1.0.0.json`;
-    const finalPath = path.join(normalizedDir, finalName);
+    const finalPath = path.join(normalizedDir, `${collectionId}_v1.0.0.json`);
 
     const failingFs: NormalizedStoreFs = {
       ...baseFs,
@@ -166,7 +161,7 @@ describe("writeNormalizedDocument — publication atomique", () => {
     );
   });
 
-  it("deux publications concurrentes identiques : une écriture, un déjà normalisé, sortie complète", async () => {
+  it("deux publications concurrentes identiques : written + already_normalized", async () => {
     const projectRoot = await freshRoot();
     const collectionId = "concurrent-0000-0000-0000-000000000001";
     const document = sampleDocument(collectionId);
@@ -178,16 +173,15 @@ describe("writeNormalizedDocument — publication atomique", () => {
       `${collectionId}_v1.0.0.json`,
     );
 
-    let copyCalls = 0;
+    let linkCalls = 0;
     const concurrentFs: NormalizedStoreFs = {
       ...baseFs,
-      copyFile: async (src, dest, mode) => {
-        const call = ++copyCalls;
+      link: async (existingPath, newPath) => {
+        const call = ++linkCalls;
         if (call === 1) {
-          // Laisser la seconde tentative atteindre copyFile avant publication.
           await new Promise((resolve) => setTimeout(resolve, 30));
         }
-        return copyFile(src, dest, mode);
+        return link(existingPath, newPath);
       },
     };
 
@@ -209,7 +203,6 @@ describe("writeNormalizedDocument — publication atomique", () => {
 
     const onDisk = await readFile(finalPath, "utf8");
     assert.equal(onDisk, expected);
-    assert.notEqual(onDisk.includes("PARTIAL"), true);
 
     const leftovers = (await readdir(path.dirname(finalPath))).filter((name) =>
       name.endsWith(".tmp"),
@@ -217,7 +210,7 @@ describe("writeNormalizedDocument — publication atomique", () => {
     assert.deepEqual(leftovers, []);
   });
 
-  it("destination différente : aucun écrasement", async () => {
+  it("destination différente : conflit sans écrasement", async () => {
     const projectRoot = await freshRoot();
     const collectionId = "conflict-0000-0000-0000-000000000001";
     const document = sampleDocument(collectionId);
@@ -241,6 +234,55 @@ describe("writeNormalizedDocument — publication atomique", () => {
 
     const leftovers = (await readdir(normalizedDir)).filter((name) =>
       name.endsWith(".tmp"),
+    );
+    assert.deepEqual(leftovers, []);
+  });
+
+  it("échec de création du lien : temporaire nettoyé, destination préservée", async () => {
+    const projectRoot = await freshRoot();
+    const collectionId = "linkfail-0000-0000-0000-000000000001";
+    const document = sampleDocument(collectionId);
+    const normalizedDir = path.join(projectRoot, "data", "normalized");
+    await mkdir(normalizedDir, { recursive: true });
+
+    // Fichier voisin à préserver (ne doit pas être touché).
+    const siblingPath = path.join(normalizedDir, "sibling-keep.json");
+    const siblingContent = '{"keep":true}\n';
+    await writeFile(siblingPath, siblingContent, "utf8");
+
+    const finalPath = path.join(normalizedDir, `${collectionId}_v1.0.0.json`);
+
+    const failingLinkFs: NormalizedStoreFs = {
+      ...baseFs,
+      link: async () => {
+        const err = new Error("Cross-device link not permitted (simulé)");
+        (err as NodeJS.ErrnoException).code = "EXDEV";
+        throw err;
+      },
+    };
+
+    await assert.rejects(
+      () =>
+        writeNormalizedDocument({
+          document,
+          projectRoot,
+          fs: failingLinkFs,
+        }),
+      (error: unknown) => {
+        if (!isNormalizeError(error) || error.code !== "LINK_UNSUPPORTED") {
+          return false;
+        }
+        assert.match(error.message, /lien physique/i);
+        assert.match(error.message, /Aucun repli vers copyFile/);
+        return true;
+      },
+    );
+
+    await assert.rejects(() => access(finalPath));
+    assert.equal(await readFile(siblingPath, "utf8"), siblingContent);
+
+    const leftovers = (await readdir(normalizedDir)).filter(
+      (name) => name.endsWith(".tmp") || name === `${collectionId}_v1.0.0.json`,
     );
     assert.deepEqual(leftovers, []);
   });

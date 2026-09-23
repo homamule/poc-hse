@@ -1,7 +1,6 @@
 import {
   access,
-  copyFile,
-  constants,
+  link,
   mkdir,
   open,
   readFile,
@@ -37,7 +36,8 @@ export type NormalizedStoreFs = {
   access: typeof access;
   readFile: typeof readFile;
   open: typeof open;
-  copyFile: typeof copyFile;
+  /** Lien physique uniquement (pas de lien symbolique). */
+  link: typeof link;
   unlink: typeof unlink;
 };
 
@@ -46,9 +46,20 @@ const defaultFs: NormalizedStoreFs = {
   access,
   readFile,
   open,
-  copyFile,
+  link,
   unlink,
 };
+
+/** Codes errno typiques lorsque le FS refuse un lien physique. */
+const LINK_UNSUPPORTED_CODES = new Set([
+  "EXDEV",
+  "EPERM",
+  "EACCES",
+  "ENOTSUP",
+  "EOPNOTSUPP",
+  "EINVAL",
+  "ENOSYS",
+]);
 
 function toPosix(relativePath: string): string {
   return relativePath.split(path.sep).join("/");
@@ -130,10 +141,25 @@ async function removeTempQuietly(
   }
 }
 
+function linkPublicationError(error: unknown): NormalizeError {
+  const code = errorCode(error);
+  if (code !== undefined && LINK_UNSUPPORTED_CODES.has(code)) {
+    return new NormalizeError(
+      "LINK_UNSUPPORTED",
+      `Publication impossible : le système de fichiers n'autorise pas la création d'un lien physique (fs.link, code ${code}). Requis : même volume, support des hard links (ex. NTFS sous Windows). Aucun repli vers copyFile.`,
+    );
+  }
+  return new NormalizeError(
+    "LINK_FAILED",
+    `Échec de publication par lien physique (fs.link${code ? `, code ${code}` : ""}). Aucun repli vers copyFile.`,
+  );
+}
+
 /**
  * Écrit entièrement dans un fichier temporaire du même dossier, ferme le
- * descripteur, puis publie vers la destination sans écrasement
- * (copyFile + COPYFILE_EXCL, compatible Windows).
+ * descripteur, puis publie via un lien physique (`fs.link`) sans écrasement
+ * et sans recopier les octets. Compatible Windows/NTFS sur un même volume.
+ * Pas de lien symbolique. Pas de repli silencieux vers copyFile.
  * Ne supprime jamais une destination existante.
  */
 export async function writeNormalizedDocument(input: {
@@ -178,11 +204,7 @@ export async function writeNormalizedDocument(input: {
     }
 
     try {
-      await fsImpl.copyFile(
-        tmpPath,
-        paths.absolute,
-        constants.COPYFILE_EXCL,
-      );
+      await fsImpl.link(tmpPath, paths.absolute);
     } catch (error) {
       if (errorCode(error) === "EEXIST") {
         return compareExistingDestination(
@@ -193,7 +215,7 @@ export async function writeNormalizedDocument(input: {
           fsImpl,
         );
       }
-      throw error;
+      throw linkPublicationError(error);
     }
 
     return {
