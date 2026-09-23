@@ -2,7 +2,7 @@
 
 Collecte et normalisation locale d’articles via l’**API Légifrance** (PISTE), sous Windows (PowerShell), sans Docker ni WSL.
 
-Périmètre actuel : **collecte** + **normalisation locale** + **lot séquentiel pilote** (pas de Neo4j, embeddings, extraction d’obligations ni exploration automatique des liens).
+Périmètre actuel : **collecte** + **normalisation locale** + **lot séquentiel pilote** + **comparaison locale déterministe** (pas de Neo4j, embeddings, extraction d’obligations ni exploration automatique des liens).
 
 ## Prérequis
 
@@ -43,6 +43,9 @@ npm run collect:batch -- --input "config/articles-pilot.json"
 
 # Normalisation locale (aucun réseau, ne charge pas .env)
 npm run normalize -- --collection "data/collections/<fichier>.json"
+
+# Comparaison locale de deux collectes (aucun réseau, ne charge pas .env)
+npm run compare -- --before "data/collections/<premiere>.json" --after "data/collections/<seconde>.json"
 ```
 
 ## Lot pilote (`collect:batch`)
@@ -131,6 +134,56 @@ Voir le mapping source → document normalisé dans les versions antérieures du
 | Dates | quatre dates principales | `dates.*` (`raw` + `isoUtc` si ms valides) |
 | Context / versions / relations | structures source | préservées (ordre, doublons, champs complets) |
 
+## Comparaison locale (étape 4)
+
+Compare **syntaxiquement** deux corps JSON de collecte d’une **même** version d’article (`article.id`) et d’un **même** environnement. Aucun réseau, aucun `.env`, aucun LLM.
+
+```powershell
+npm run compare -- --before "data/collections\<premiere>.json" --after "data/collections\<seconde>.json"
+```
+
+Contraintes d’entrée : `before.collectedAtUtc ≤ after.collectedAtUtc` (auto-comparaison acceptée). Identifiants LEGIARTI ou environnements différents → refus. Les fichiers de collecte / normalisation ne sont **pas** modifiés.
+
+### Politique de classement (`comparisonPolicyVersion` 1.0.0)
+
+Diff structurelle exhaustive (ordre des clés ignoré ; ordre / doublons des tableaux conservés — un réordonnancement = différence). Chemins en JSON Pointer. Catégories :
+
+| Catégorie | Racines (et descendants pour context / versions / relations) |
+|---|---|
+| `content` | `/article/texte`, `texteHtml`, `nota`, `notaHtml` |
+| `dates_state` | `etat`, dates, `conditionDiffere` |
+| `identity` | `id`, `cid`, `num`, `origine`, `nature`, `type`, `versionArticle` |
+| `context` | `context`, `textTitles`, ids texte / section parent, titres |
+| `versions` | `articleVersions`, `versionPrecedente` |
+| `relations` | `lienCitations`, `lienModifications`, `lienConcordes`, `lienAutres` |
+| `technical` | `/executionTime`, `/article/refInjection`, `/article/idTechInjection` uniquement |
+| `other` | tout chemin non couvert |
+
+`technical` est une **convention du comparateur**, pas une lecture juridique de l’API. Un champ inconnu n’est **jamais** classé automatiquement en `technical`.
+
+### Empreintes
+
+Pour chaque côté : `bodySha256` (fichier brut), `structuralSha256` (JSON canonisé — clés triées, tableaux préservés), `watchSha256` (même canonisation après retrait des **seuls** trois chemins `technical`). Les champs inconnus participent à `watchSha256`. Associées à la version de politique ; `watchSha256` n’est **pas** une preuve d’équivalence juridique.
+
+### Statuts globaux (exclusifs)
+
+| Statut | Signification |
+|---|---|
+| `identical` | Corps bruts identiques |
+| `serialization_only` | Corps différents, JSON structurellement identiques (espaces, ordre des clés…) |
+| `technical_only` | Différences structurelles, toutes `technical` |
+| `review_required` | Au moins une différence hors `technical` (y compris `other`) |
+
+Le rapport **ne** produit **jamais** de formulation du type « nouvelle obligation », « changement applicable » ou « conformité modifiée ».
+
+Sortie : `data/comparisons/<comparisonId>.json` (publication exclusive via `fs.link`). Code de sortie `0` si la comparaison s’exécute, y compris en `review_required`.
+
+### Limites
+
+- Même version d’article et même environnement uniquement
+- Comparaison **syntaxique** des corps originaux (pas le document normalisé)
+- Aucune qualification juridique ni surveillance automatique
+
 ## Structure des données
 
 ```
@@ -141,6 +194,7 @@ data/
   collections/
   normalized/
   batches/              # rapports de lot <batchId>.json
+  comparisons/          # rapports de comparaison <comparisonId>.json
 ```
 
 `.env` et `data/` sont exclus via `.gitignore`.

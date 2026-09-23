@@ -11,6 +11,7 @@
     "collect": "tsx src/collect.ts",
     "collect:batch": "tsx src/collect-batch.ts",
     "normalize": "tsx src/normalize.ts",
+    "compare": "tsx src/compare.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/**/*.test.ts"
   },
