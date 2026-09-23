@@ -55,6 +55,9 @@ Références officielles :
 # Vérification TypeScript
 npm run typecheck
 
+# Tests unitaires (HTTP simulé, aucun identifiant PISTE requis)
+npm test
+
 # Collecte d’un article
 npm run collect
 ```
@@ -64,12 +67,28 @@ npm run collect
 1. Lecture de `.env`
 2. Obtention d’un jeton OAuth2 (`client_credentials`) — le jeton n’est **jamais** affiché ni sauvegardé
 3. Appel `POST …/consult/getArticle` avec `{ "id": "<LEGIFRANCE_ARTICLE_ID>" }`
-4. En cas de succès uniquement :
+4. Validation de la réponse (voir ci-dessous) ; en cas d’échec → `CollectError INVALID_RESPONSE`, **aucune** sauvegarde de succès
+5. En cas de succès uniquement :
    - corps JSON **brut** enregistré sous `data/bodies/<sha256>.json` (déduplication par empreinte)
-   - métadonnées sous `data/collections/<horodatage-UTC>_<id>.json` (une trace par collecte réussie)
-5. Résumé console : identifiant, numéro d’article, champs de version présents, chemins des fichiers
+   - métadonnées sous `data/collections/<horodatage-UTC>_<id>_<collectionId>.json` (création exclusive, UUID de collecte)
+6. Résumé console : identifiant, numéro d’article, champs de version présents, chemins des fichiers
 
-Une collecte échouée (auth, quota HTTP 429, réseau, timeout, JSON invalide, `article` absent) se termine avec un code de sortie non nul et **n’écrit pas** de succès.
+Une collecte échouée (auth, quota HTTP 429, réseau, timeout, JSON invalide, article invalide) se termine avec un code de sortie non nul et **n’écrit pas** de succès.
+
+### Validation de l’article reçu
+
+Avant sauvegarde, la réponse doit satisfaire :
+
+- `article` est un objet non nul et non tableau ;
+- `article.id` est une chaîne **identique** à `LEGIFRANCE_ARTICLE_ID` ;
+- un contenu textuel exploitable est présent.
+
+**Champs de contenu (schéma Article Swagger / `getArticle`)** : `texte` (brut) et `texteHtml` (HTML).  
+**Règle retenue** : au moins l’une des deux chaînes doit être non vide après trim. Les deux représentations sont documentées ; on n’exige pas les deux à la fois. Le corps archivé n’est jamais transformé par cette validation.
+
+### Erreurs HTTP
+
+Les erreurs de transport **et** de lecture du corps (`response.text()`) sont classées `NETWORK`. Autres codes : `AUTH` (401/403), `QUOTA` (429), `NOT_FOUND` (404 article), `HTTP`, `INVALID_RESPONSE`. Aucun message n’expose secret, jeton OAuth ou corps d’authentification.
 
 ## Structure des données
 
@@ -79,6 +98,9 @@ data/
   collections/     # une métadonnée JSON par collecte réussie
 ```
 
-Métadonnées : date UTC, environnement, identifiant demandé, URL appelée, statut HTTP, SHA-256 du corps, chemins relatifs.
+Nom des métadonnées : `<horodatage-UTC>_<articleId>_<collectionId>.json`  
+Champs : date UTC, `collectionId`, environnement, identifiant demandé, URL, statut HTTP, SHA-256 du corps, chemins relatifs, indicateur de réutilisation du corps.
+
+Deux collectes au contenu identique partagent un seul fichier sous `bodies/`, mais ont toujours deux fichiers de métadonnées distincts (UUID + création exclusive `wx`).
 
 `.env` et `data/` sont exclus via `.gitignore`.

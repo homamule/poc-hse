@@ -1,6 +1,7 @@
 import type { AppConfig } from "./config.js";
 import { CollectError } from "./errors.js";
-import { mapNetworkError } from "./auth.js";
+import { mapNetworkError, readResponseText } from "./http.js";
+import { assertValidGetArticleResponse } from "./article-validation.js";
 
 export type ArticleFetchResult = {
   url: string;
@@ -13,6 +14,9 @@ export type ArticleFetchResult = {
 /**
  * Récupère un article via POST /consult/getArticle.
  * Corps documenté : { "id": "<LEGIARTI…>" }
+ *
+ * Le corps original (bodyText) est conservé tel quel ; la validation
+ * structurelle n'altère pas les données destinées à l'archivage.
  */
 export async function fetchArticle(
   config: AppConfig,
@@ -37,7 +41,7 @@ export async function fetchArticle(
     throw mapNetworkError(error, "collecte d'article");
   }
 
-  const bodyText = await response.text();
+  const bodyText = await readResponseText(response, "collecte d'article");
 
   if (response.status === 401 || response.status === 403) {
     throw new CollectError(
@@ -77,12 +81,7 @@ export async function fetchArticle(
     );
   }
 
-  if (!isObject(bodyJson) || !("article" in bodyJson) || bodyJson.article == null) {
-    throw new CollectError(
-      "INVALID_RESPONSE",
-      "Réponse API invalide : propriété « article » absente. La collecte est considérée comme échouée.",
-    );
-  }
+  assertValidGetArticleResponse(bodyJson, config.articleId);
 
   return {
     url,
@@ -90,8 +89,4 @@ export async function fetchArticle(
     bodyText,
     bodyJson,
   };
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

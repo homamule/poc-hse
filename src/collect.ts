@@ -41,6 +41,7 @@ async function main(): Promise<void> {
     }
   }
 
+  console.log(`  Identifiant de collecte : ${saved.collectionId}`);
   console.log("  Fichiers sauvegardés :");
   console.log(`    - Corps brut : ${path.relative(process.cwd(), saved.bodyPath)}`);
   if (saved.bodyAlreadyExisted) {

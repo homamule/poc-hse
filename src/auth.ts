@@ -1,17 +1,16 @@
 import type { AppConfig } from "./config.js";
 import { CollectError } from "./errors.js";
+import { mapNetworkError, readResponseText } from "./http.js";
 import { OAUTH_GRANT_TYPE, OAUTH_SCOPE } from "./piste.js";
 
-type TokenResponse = {
-  access_token?: unknown;
-  token_type?: unknown;
-  expires_in?: unknown;
-  scope?: unknown;
-};
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 /**
  * Obtient un jeton OAuth2 via le flux client_credentials (PISTE).
  * Le jeton n'est jamais journalisé ni renvoyé hors de cette couche.
+ * Aucun message d'erreur n'expose le secret, le jeton ou le corps OAuth.
  */
 export async function fetchAccessToken(config: AppConfig): Promise<string> {
   const body = new URLSearchParams({
@@ -36,7 +35,7 @@ export async function fetchAccessToken(config: AppConfig): Promise<string> {
     throw mapNetworkError(error, "authentification OAuth2");
   }
 
-  const rawText = await response.text();
+  const rawText = await readResponseText(response, "authentification OAuth2");
 
   if (response.status === 401 || response.status === 403) {
     throw new CollectError(
@@ -59,9 +58,9 @@ export async function fetchAccessToken(config: AppConfig): Promise<string> {
     );
   }
 
-  let parsed: TokenResponse;
+  let parsed: unknown;
   try {
-    parsed = JSON.parse(rawText) as TokenResponse;
+    parsed = JSON.parse(rawText) as unknown;
   } catch {
     throw new CollectError(
       "INVALID_RESPONSE",
@@ -69,34 +68,22 @@ export async function fetchAccessToken(config: AppConfig): Promise<string> {
     );
   }
 
-  if (typeof parsed.access_token !== "string" || parsed.access_token.length === 0) {
+  if (!isPlainObject(parsed)) {
+    throw new CollectError(
+      "INVALID_RESPONSE",
+      "Réponse OAuth2 invalide : objet JSON attendu.",
+    );
+  }
+
+  const accessToken = parsed.access_token;
+  if (typeof accessToken !== "string" || accessToken.length === 0) {
     throw new CollectError(
       "INVALID_RESPONSE",
       "Réponse OAuth2 invalide : access_token manquant.",
     );
   }
 
-  return parsed.access_token;
-}
-
-function mapNetworkError(error: unknown, context: string): CollectError {
-  if (error instanceof Error && error.name === "TimeoutError") {
-    return new CollectError(
-      "NETWORK",
-      `Délai maximal dépassé lors de la requête ${context}.`,
-    );
-  }
-  if (error instanceof Error && error.name === "AbortError") {
-    return new CollectError(
-      "NETWORK",
-      `Requête ${context} annulée (délai maximal ou interruption).`,
-    );
-  }
-  const detail = error instanceof Error ? error.message : String(error);
-  return new CollectError(
-    "NETWORK",
-    `Erreur réseau lors de la requête ${context} : ${detail}`,
-  );
+  return accessToken;
 }
 
 export { mapNetworkError };
