@@ -27,10 +27,10 @@ notepad .env
 | `PISTE_ENV` | `collect`, `collect:batch` | `sandbox` ou `production` |
 | `LEGIFRANCE_ARTICLE_ID` | `collect` uniquement | Un `LEGIARTI…` — **non utilisé** par `collect:batch` |
 | `REQUEST_TIMEOUT_MS` | optionnel | Délai max HTTP (défaut `30000`) |
-| `HSE_NEO4J_URI` | `graph:import --apply`, `graph:content --apply` | URI bolt/neo4j (non lue en aperçu) |
-| `HSE_NEO4J_USER` | `graph:import --apply`, `graph:content --apply` | Utilisateur Neo4j |
-| `HSE_NEO4J_PASSWORD` | `graph:import --apply`, `graph:content --apply` | Mot de passe (jamais affiché) |
-| `HSE_NEO4J_DATABASE` | `graph:import --apply`, `graph:content --apply` | Base ciblée (défaut `neo4j`) |
+| `HSE_NEO4J_URI` | `graph:import --apply`, `graph:content --apply`, `graph:passages:import --apply` | URI bolt/neo4j (non lue en aperçu) |
+| `HSE_NEO4J_USER` | mêmes commandes `--apply` | Utilisateur Neo4j |
+| `HSE_NEO4J_PASSWORD` | mêmes commandes `--apply` | Mot de passe (jamais affiché) |
+| `HSE_NEO4J_DATABASE` | mêmes commandes `--apply` | Base ciblée (défaut `neo4j`) |
 
 ## Commandes
 
@@ -346,3 +346,32 @@ Le découpage est refusé si HTML et texte brut divergent. La sortie est publié
 de façon exclusive dans `data/passages/<passageSetId>.json` ; la relance identique
 ne réécrit rien. Aucun appel réseau, aucune modification du graphe ni d'AuraDB.
 Les passages ne sont pas des obligations juridiques interprétées.
+
+## Import des passages dans Neo4j
+
+Après `graph:content --apply`, vérifier localement le lot (aucune connexion) :
+
+```powershell
+npm run graph:passages:import -- --passages "data/passages/<passageSetId>.json"
+```
+
+Puis importer dans la base définie par `HSE_NEO4J_*` :
+
+```powershell
+npm run graph:passages:import -- --passages "data/passages/<passageSetId>.json" --apply
+```
+
+Les nœuds `HsePassage` sont reliés à leurs versions collectées par
+`A_POUR_PASSAGE`. L'import vérifie les articles et leurs empreintes textuelles
+dans Neo4j, traite le lot dans une transaction, refuse les données
+incomplètes ou différentes et accepte la relance identique. Les autres lots
+de passages restent distincts grâce au `passageSetId`.
+
+```cypher
+MATCH (a:HseArticleVersion {graphId: '<graphId>'})
+      -[:A_POUR_PASSAGE {passageSetId: '<passageSetId>'}]->
+      (p:HsePassage {passageSetId: '<passageSetId>'})
+RETURN a.num AS article, p.index AS ordre, p.texte AS passage,
+       p.start AS debut, p.end AS fin, p.texteSha256 AS empreinte
+ORDER BY article, ordre
+```
