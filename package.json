@@ -16,6 +16,7 @@
     "graph:build": "tsx src/graph-build.ts",
     "graph:import": "tsx src/graph-import.ts",
     "graph:content": "tsx src/graph-content.ts",
+    "graph:passages": "tsx src/graph-passages.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/**/*.test.ts"
   },

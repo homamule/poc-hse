@@ -2,7 +2,7 @@
 
 Collecte et normalisation locale d’articles via l’**API Légifrance** (PISTE), sous Windows (PowerShell), sans Docker ni WSL.
 
-Périmètre actuel : **collecte** + **normalisation** + **lot** + **comparaison** + **inventaire de relations** + **projection graphe JSON** + **import Neo4j contrôlé** + **texte des articles dans Neo4j** (pas d’embeddings ni d’extraction d’obligations).
+Périmètre actuel : **collecte** + **normalisation** + **lot** + **comparaison** + **inventaire de relations** + **projection graphe JSON** + **import Neo4j contrôlé** + **texte des articles dans Neo4j** + **passages locaux sourcés** (pas d’embeddings ni d’extraction d’obligations).
 
 ## Prérequis
 
@@ -297,6 +297,7 @@ data/
   comparisons/              # rapports de comparaison <comparisonId>.json
   relation-inventories/     # inventaires de relations <inventoryId>.json
   graphs/                   # graphes JSON locaux <graphId>.json
+  passages/                 # passages JSON locaux <passageSetId>.json
 ```
 
 `.env` et `data/` sont exclus via `.gitignore`.
@@ -330,3 +331,18 @@ RETURN a.num AS article, a.texte AS texte, a.texteSha256 AS empreinte,
        a.collectionId AS collecte, a.bodySha256 AS corpsSource
 ORDER BY article
 ```
+
+## Passages sourcés (projection locale)
+
+```powershell
+npm run graph:passages -- --graph "data/graphs/<graphId>.json"
+```
+
+Cette commande découpe le texte brut des articles collectés selon les paragraphes
+de `content.texteHtml`. Le HTML sert seulement à trouver les frontières : chaque
+passage est une sous-chaîne exacte de `content.texte`, avec offsets, SHA-256,
+identifiant déterministe et référence à sa version d'article et sa collecte.
+Le découpage est refusé si HTML et texte brut divergent. La sortie est publiée
+de façon exclusive dans `data/passages/<passageSetId>.json` ; la relance identique
+ne réécrit rien. Aucun appel réseau, aucune modification du graphe ni d'AuraDB.
+Les passages ne sont pas des obligations juridiques interprétées.
