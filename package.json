@@ -14,11 +14,13 @@
     "compare": "tsx src/compare.ts",
     "relations:inventory": "tsx src/relations-inventory.ts",
     "graph:build": "tsx src/graph-build.ts",
+    "graph:import": "tsx src/graph-import.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/**/*.test.ts"
   },
   "dependencies": {
-    "dotenv": "^16.4.7"
+    "dotenv": "^16.4.7",
+    "neo4j-driver": "^6.2.0"
   },
   "devDependencies": {
     "@types/node": "^22.13.10",

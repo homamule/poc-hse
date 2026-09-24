@@ -2,7 +2,7 @@
 
 Collecte et normalisation locale d’articles via l’**API Légifrance** (PISTE), sous Windows (PowerShell), sans Docker ni WSL.
 
-Périmètre actuel : **collecte** + **normalisation locale** + **lot séquentiel pilote** + **comparaison locale déterministe** + **inventaire local des relations** + **projection graphe JSON locale** (pas de Neo4j, embeddings, extraction d’obligations ni exploration automatique des liens).
+Périmètre actuel : **collecte** + **normalisation** + **lot** + **comparaison** + **inventaire de relations** + **projection graphe JSON** + **import Neo4j contrôlé** (pas d’embeddings ni d’extraction d’obligations).
 
 ## Prérequis
 
@@ -27,6 +27,10 @@ notepad .env
 | `PISTE_ENV` | `collect`, `collect:batch` | `sandbox` ou `production` |
 | `LEGIFRANCE_ARTICLE_ID` | `collect` uniquement | Un `LEGIARTI…` — **non utilisé** par `collect:batch` |
 | `REQUEST_TIMEOUT_MS` | optionnel | Délai max HTTP (défaut `30000`) |
+| `HSE_NEO4J_URI` | `graph:import --apply` | URI bolt/neo4j (non lue en aperçu) |
+| `HSE_NEO4J_USER` | `graph:import --apply` | Utilisateur Neo4j |
+| `HSE_NEO4J_PASSWORD` | `graph:import --apply` | Mot de passe (jamais affiché) |
+| `HSE_NEO4J_DATABASE` | `graph:import --apply` | Base ciblée (défaut `neo4j`) |
 
 ## Commandes
 
@@ -54,6 +58,11 @@ npm run relations:inventory -- --batch "data/batches/<batchId>.json"
 
 # Projection graphe JSON locale (depuis un inventaire ; aucun réseau / Neo4j / .env)
 npm run graph:build -- --inventory "data/relation-inventories/<id>.json"
+
+# Import Neo4j contrôlé — aperçu local (aucune connexion, aucun identifiant lu)
+npm run graph:import -- --graph "data/graphs/<id>.json"
+# Import Neo4j contrôlé — application (lit HSE_NEO4J_* ; pilote officiel)
+npm run graph:import -- --graph "data/graphs/<id>.json" --apply
 ```
 
 ## Lot pilote (`collect:batch`)
@@ -250,6 +259,29 @@ npm run graph:build -- --inventory "data/relation-inventories\de11015b82fde06255
 Pas de lien direct « CITE » entre articles à cette étape. Les entrées `non_resolue` ne deviennent pas des nœuds ; leur décompte reste dans `metadata.nonResolueCount`. Aucune fusion sur `num` ou `cid`.
 
 Sortie : `data/graphs/<graphId>.json` (publication exclusive). Relance identique → « déjà présent ».
+
+## Import Neo4j contrôlé (étape 8)
+
+Import du graphe JSON vers Neo4j via le pilote officiel `neo4j-driver`. Labels dédiés `HseArticleVersion` et `HseRelationSource` ; clé unique `graphId:idJSON`. Les types de liens restent `OBSERVATION_DANS` et `REFERENCE_IDENTIFIANT` — **pas** de relation juridique `CITE`.
+
+```powershell
+# Aperçu : validation locale uniquement (aucune connexion Neo4j)
+npm run graph:import -- --graph "data/graphs\166b806665c9e232c138c800f7b1593cbf9de5c5a5eb82eff563e6c00215ebff.json"
+
+# Application : contraintes IF NOT EXISTS, transaction d'écriture, lecture de contrôle
+npm run graph:import -- --graph "data/graphs\166b806665c9e232c138c800f7b1593cbf9de5c5a5eb82eff563e6c00215ebff.json" --apply
+```
+
+Sans `--apply` : aucun accès aux variables `HSE_NEO4J_*`. Avec `--apply` : base ciblée par `HSE_NEO4J_DATABASE` ; conflit de propriétés sur une même `key` → échec explicite et annulation (pas d’écrasement silencieux). Relance idempotente sans doublons. Aucune suppression de données Neo4j. Les messages d’erreur de connexion ne exposent ni mot de passe ni URI credentialisée.
+
+Lecture Cypher limitée à un `graphId` :
+
+```cypher
+MATCH (a:HseArticleVersion {graphId: $graphId})
+OPTIONAL MATCH (a)-[r:OBSERVATION_DANS|REFERENCE_IDENTIFIANT]->(b)
+RETURN a, r, b
+LIMIT 50;
+```
 
 ## Structure des données
 
