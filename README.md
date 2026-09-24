@@ -2,7 +2,7 @@
 
 Collecte et normalisation locale d’articles via l’**API Légifrance** (PISTE), sous Windows (PowerShell), sans Docker ni WSL.
 
-Périmètre actuel : **collecte** + **normalisation locale** + **lot séquentiel pilote** + **comparaison locale déterministe** (pas de Neo4j, embeddings, extraction d’obligations ni exploration automatique des liens).
+Périmètre actuel : **collecte** + **normalisation locale** + **lot séquentiel pilote** + **comparaison locale déterministe** + **inventaire local des relations** + **projection graphe JSON locale** (pas de Neo4j, embeddings, extraction d’obligations ni exploration automatique des liens).
 
 ## Prérequis
 
@@ -48,6 +48,12 @@ npm run normalize -- --collection "data/collections/<fichier>.json"
 
 # Comparaison locale de deux collectes (aucun réseau, ne charge pas .env)
 npm run compare -- --before "data/collections/<premiere>.json" --after "data/collections/<seconde>.json"
+
+# Inventaire local des relations (rapport de lot prévention ; aucun réseau / .env)
+npm run relations:inventory -- --batch "data/batches/<batchId>.json"
+
+# Projection graphe JSON locale (depuis un inventaire ; aucun réseau / Neo4j / .env)
+npm run graph:build -- --inventory "data/relation-inventories/<id>.json"
 ```
 
 ## Lot pilote (`collect:batch`)
@@ -201,17 +207,64 @@ Sortie : `data/comparisons/<comparisonId>.json` (publication exclusive via `fs.l
 - Comparaison **syntaxique** des corps originaux (pas le document normalisé)
 - Aucune qualification juridique ni surveillance automatique
 
+## Inventaire des relations (étape 6)
+
+Lit un rapport de lot **prévention** (4 succès) et les fichiers normalisés référencés. Aucun réseau, aucun `.env`. Inventaire des données source uniquement — pas de Neo4j, d’embeddings ni d’interprétation juridique.
+
+```powershell
+npm run relations:inventory -- --batch "data/batches\<batchId>.json"
+```
+
+Parcourt `lienCitations`, `lienModifications`, `lienConcordes`, `lienAutres`. Chaque entrée conserve les valeurs brutes (`linkType`, `linkOrientation`, etc.) **sans** déduire « A cite B » à partir de `linkOrientation`.
+
+### Classes de correspondance (identifiant exact uniquement)
+
+| Classe | Signification |
+|---|---|
+| `version_collectee` | `articleId` = `identity.id` d’un des quatre fichiers du corpus |
+| `autre_version_connue` | `articleId` figure dans `versions.articleVersions` d’un article du corpus, mais cette version n’est pas collectée |
+| `non_resolue` | aucun des deux cas (y compris `articleId` absent ou inattendu, avec raison) |
+
+Aucun appariement sur le seul numéro d’article (`L4121-1`…) ni sur le `cid`.
+
+Sortie : `data/relation-inventories/<inventoryId>.json` (publication exclusive). Relance identique → « déjà présent » ; contenu différent au même emplacement → refus.
+
+## Projection graphe locale (étape 7)
+
+Construit un graphe **JSON déterministe** à partir d’un inventaire de relations. Aucun Neo4j, aucun réseau, aucun `.env`. Les liens techniques décrivent la structure des données ; ils **n’affirment pas** le sens juridique de « cite ».
+
+```powershell
+npm run graph:build -- --inventory "data/relation-inventories\de11015b82fde062558e4659332f960a328999ae2283b75e20e78d61caccdef9.json"
+```
+
+### Modèle (politique 1.0.0)
+
+| Élément | Rôle |
+|---|---|
+| `ArticleVersion` (collected=true) | Une version effectivement collectée (`identity.id`) |
+| `ArticleVersion` (collected=false) | Version historique pointée par `autre_version_connue`, confirmée dans `articleVersions` — sans texte / état / date inventés |
+| `RelationSource` | Une entrée d’inventaire `version_collectee` ou `autre_version_connue` |
+| `OBSERVATION_DANS` | ArticleVersion collecté → RelationSource |
+| `REFERENCE_IDENTIFIANT` | RelationSource → ArticleVersion référencé (id exact de l’entrée) |
+
+Pas de lien direct « CITE » entre articles à cette étape. Les entrées `non_resolue` ne deviennent pas des nœuds ; leur décompte reste dans `metadata.nonResolueCount`. Aucune fusion sur `num` ou `cid`.
+
+Sortie : `data/graphs/<graphId>.json` (publication exclusive). Relance identique → « déjà présent ».
+
 ## Structure des données
 
 ```
 config/
-  articles-pilot.json   # lot pilote (versions L4121-1)
+  articles-pilot.json       # lot pilote (versions L4121-1)
+  articles-prevention.json  # corpus prévention (4 articles)
 data/
   bodies/
   collections/
   normalized/
-  batches/              # rapports de lot <batchId>.json
-  comparisons/          # rapports de comparaison <comparisonId>.json
+  batches/                  # rapports de lot <batchId>.json
+  comparisons/              # rapports de comparaison <comparisonId>.json
+  relation-inventories/     # inventaires de relations <inventoryId>.json
+  graphs/                   # graphes JSON locaux <graphId>.json
 ```
 
 `.env` et `data/` sont exclus via `.gitignore`.

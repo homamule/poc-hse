@@ -12,6 +12,8 @@
     "collect:batch": "tsx src/collect-batch.ts",
     "normalize": "tsx src/normalize.ts",
     "compare": "tsx src/compare.ts",
+    "relations:inventory": "tsx src/relations-inventory.ts",
+    "graph:build": "tsx src/graph-build.ts",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test test/**/*.test.ts"
   },
