@@ -2,7 +2,7 @@
 
 Collecte et normalisation locale d’articles via l’**API Légifrance** (PISTE), sous Windows (PowerShell), sans Docker ni WSL.
 
-Périmètre actuel : **collecte** + **normalisation** + **lot** + **comparaison** + **inventaire de relations** + **projection graphe JSON** + **import Neo4j contrôlé** (pas d’embeddings ni d’extraction d’obligations).
+Périmètre actuel : **collecte** + **normalisation** + **lot** + **comparaison** + **inventaire de relations** + **projection graphe JSON** + **import Neo4j contrôlé** + **texte des articles dans Neo4j** (pas d’embeddings ni d’extraction d’obligations).
 
 ## Prérequis
 
@@ -27,10 +27,10 @@ notepad .env
 | `PISTE_ENV` | `collect`, `collect:batch` | `sandbox` ou `production` |
 | `LEGIFRANCE_ARTICLE_ID` | `collect` uniquement | Un `LEGIARTI…` — **non utilisé** par `collect:batch` |
 | `REQUEST_TIMEOUT_MS` | optionnel | Délai max HTTP (défaut `30000`) |
-| `HSE_NEO4J_URI` | `graph:import --apply` | URI bolt/neo4j (non lue en aperçu) |
-| `HSE_NEO4J_USER` | `graph:import --apply` | Utilisateur Neo4j |
-| `HSE_NEO4J_PASSWORD` | `graph:import --apply` | Mot de passe (jamais affiché) |
-| `HSE_NEO4J_DATABASE` | `graph:import --apply` | Base ciblée (défaut `neo4j`) |
+| `HSE_NEO4J_URI` | `graph:import --apply`, `graph:content --apply` | URI bolt/neo4j (non lue en aperçu) |
+| `HSE_NEO4J_USER` | `graph:import --apply`, `graph:content --apply` | Utilisateur Neo4j |
+| `HSE_NEO4J_PASSWORD` | `graph:import --apply`, `graph:content --apply` | Mot de passe (jamais affiché) |
+| `HSE_NEO4J_DATABASE` | `graph:import --apply`, `graph:content --apply` | Base ciblée (défaut `neo4j`) |
 
 ## Commandes
 
@@ -300,3 +300,33 @@ data/
 ```
 
 `.env` et `data/` sont exclus via `.gitignore`.
+
+## Texte des articles dans Neo4j
+
+Après `graph:import --apply`, préparer l'enrichissement depuis les documents normalisés :
+
+```powershell
+npm run graph:content -- --graph "data/graphs/<graphId>.json"
+```
+
+L'aperçu vérifie localement les identifiants, la collecte, l'empreinte du corps et
+la présence de `content.texte` ; il ne contacte pas Neo4j. Pour enrichir les nœuds
+collectés de cette instance (avec les mêmes variables `HSE_NEO4J_*` que l'import) :
+
+```powershell
+npm run graph:content -- --graph "data/graphs/<graphId>.json" --apply
+```
+
+Le texte est repris sans transformation depuis `content.texte`, avec `texteSha256`
+et `texteSource`. Le graphe JSON et son identifiant restent inchangés. Les versions
+historiques n'ont pas de texte. L'import est transactionnel et refuse un contenu
+déjà présent mais différent.
+
+Lecture dans Aura Query :
+
+```cypher
+MATCH (a:HseArticleVersion {graphId: '<graphId>', collected: true})
+RETURN a.num AS article, a.texte AS texte, a.texteSha256 AS empreinte,
+       a.collectionId AS collecte, a.bodySha256 AS corpsSource
+ORDER BY article
+```
